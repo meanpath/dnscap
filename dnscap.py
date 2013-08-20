@@ -41,24 +41,24 @@ class PacketLog:
         self.reset()
 
     def reset(self):
-        self.events = []
         self.timing = {}
         self.orphans = 0
         self.queries = {}
 
-    def addEvent(self,service, metric):
-        self.events.append(bernhard.Event(params={'host': self.host, 'service': service, 'metric': metric}))
+    def addEvent(self,es,service, metric):
+        es.append(bernhard.Event(params={'host': self.host, 'service': service, 'metric': metric}))
 
     def flush(self):
         ts = flatten([x for x in self.timing.values()])
-        avg = sum(ts) / len(ts)
-        self.addEvent('dns_average', avg)
-        self.addEvent('dns_max', max(ts))
-        self.addEvent('dns_count', len(ts))
-        self.addEvent('dns_orphans', self.orphans)
+        avg = 1000 * sum(ts) / len(ts)
+        es=[]
+        self.addEvent(es,'dns_average', avg)
+        self.addEvent(es,'dns_max', 1000* max(ts))
+        self.addEvent(es,'dns_count', len(ts))
+        self.addEvent(es,'dns_orphans', self.orphans)
 
-        self.riemann.transmit(bernhard.Message(events=self.events))
-        self.events=[]
+        msg = bernhard.Message(events=es)
+        self.riemann.transmit(msg)
 
 
     def process_packet(self,packet):
@@ -93,10 +93,11 @@ class Feeder:
         self.next_clearance = datetime.now() + timedelta(seconds=1)
 
     def loop(self):
+
         for packet in self.reader:
-#            if datetime.now() > self.next_clearance:
-#                self.reset_clearance()
-#                self.logger.flush()
+            if datetime.now() > self.next_clearance:
+                self.reset_clearance()
+                self.logger.flush()
             self.logger.process_packet(packet)
         self.logger.flush()
 
@@ -104,8 +105,9 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         usage()
     # in our use case this is often a FIFO
+    host = os.environ['RIEMANN_HOST']
     pcapdata = PcapReader(sys.argv[1])
-    riemann = bernhard.Client(host=os.getenv('RIEMANN_HOST'), transport=bernhard.UDPTransport)
+    riemann = bernhard.Client(host=host, transport=bernhard.UDPTransport)
     packetlog = PacketLog(riemann)
     feeder = Feeder(pcapdata, packetlog)
-    feeder.loop
+    feeder.loop()
