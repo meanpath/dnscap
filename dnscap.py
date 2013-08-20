@@ -73,14 +73,14 @@ class PacketLog:
                 if query.qname not in self.timing:
                     self.timing[query.qname] = []
 
-                self.timing[query.qname].append(packet[IP].time - oldtime)
+                self.timing[query.qname].append(packet.time - oldtime)
             except KeyError:
                 # either someone is sending us fake responses
                 # or we have duplicates
                 self.orphans = self.orphans + 1
         elif packet.haslayer(DNSQR):
             q=packet[DNSQR]
-            self.queries[dns.id] = [q, packet[IP].time]
+            self.queries[dns.id] = [q, packet.time]
 
 
 class Feeder:
