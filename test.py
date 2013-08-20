@@ -26,9 +26,7 @@ class TestPacketLog(unittest.TestCase):
         feeder = dnscap.Feeder(data, self.packetlog)
         feeder.loop()
         events = [[e.metric,e.service] for m in self.riemann.messages for e in m.events]
-        print events
-        rec = [[0.0009684297773573133, 'dns_average'], [0.0011768341064453125, 'dns_max'], [9, 'dns_count'], [0, 'dns_orphans']]
-        print rec
+	rec = [[0.01802176899380154, 'dns_average'], [0.03196001052856445, 'dns_max'], [9, 'dns_count'], [0, 'dns_orphans']]
         self.assertEqual(events, rec)
 
 
