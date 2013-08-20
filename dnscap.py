@@ -27,8 +27,6 @@ except:
 
 conf.verb = 0
 
-host = gethostname()
-
 def usage():
     print 'dnscap'
     print 'forward dns query packets to riemann for visualisation'
@@ -39,39 +37,40 @@ def usage():
 class PacketLog:
     def __init__(self, riemann):
         self.riemann=riemann
+        self.host = gethostname()
         self.reset()
 
-    def reset():
+    def reset(self):
+        self.events = []
         self.timing = {}
         self.orphans = 0
         self.queries = {}
 
-    def flush():
-        events = []
+    def addEvent(self,service, metric):
+        self.events.append(bernhard.Event(params={'host': self.host, 'service': service, 'metric': metric}))
+
+    def flush(self):
         ts = flatten([x for x in self.timing.values()])
         avg = sum(ts) / len(ts)
-        events.append(bernhard.Event(params={'host': host, 'service': 'dns_average', 'metric': (sum(ts)/len(ts))}))
-        events.append(bernhard.Event(params={'host': host, 'service': 'dns_max', 'metric': max(ts)}))
-        events.append(bernhard.Event(params={'host': host, 'service': 'dns_count', 'metric': len(ts)}))
-        events.append(bernhard.Event(params={'host': host, 'service': 'dns_orphans', 'metric': orphans}))
+        self.addEvent('dns_average', avg)
+        self.addEvent('dns_max', max(ts))
+        self.addEvent('dns_count', len(ts))
+        self.addEvent('dns_orphans', self.orphans)
 
-        riemann.transmit(bernhard.Message(events=events))
+        self.riemann.transmit(bernhard.Message(events=self.events))
+        self.events=[]
 
 
-
-    def process_packet(packet):
+    def process_packet(self,packet):
         if not packet.haslayer(DNS):
             return
         dns = packet[DNS]
-        print packet[IP].time
-        print dns.id
         if packet.haslayer(DNSRR):
             r = packet[DNSRR]
-            print "it's a response: " + str(packet[DNS].id)
             try:
                 [query, oldtime] = self.queries.pop(dns.id)
                 # FIX check query name is the same too
-                if query.qname not in timing:
+                if query.qname not in self.timing:
                     self.timing[query.qname] = []
 
                 self.timing[query.qname].append(packet[IP].time - oldtime)
@@ -82,32 +81,31 @@ class PacketLog:
         elif packet.haslayer(DNSQR):
             q=packet[DNSQR]
             self.queries[dns.id] = [q, packet[IP].time]
-            print "it's a query: " + packet[DNSQR].qname
-            print self.packet[DNSQR].fields
 
+
+class Feeder:
+    def __init__(self,reader, logger):
+        self.reader=reader
+        self.logger=logger
+        self.reset_clearance()
+
+    def reset_clearance(self):
+        self.next_clearance = datetime.now() + timedelta(seconds=1)
+
+    def loop(self):
+        for packet in self.reader:
+#            if datetime.now() > self.next_clearance:
+#                self.reset_clearance()
+#                self.logger.flush()
+            self.logger.process_packet(packet)
+        self.logger.flush()
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         usage()
     # in our use case this is often a FIFO
     pcapdata = PcapReader(sys.argv[1])
-    next_clearance = datetime.now() + timedelta(seconds=1)
     riemann = bernhard.Client(host=os.getenv('RIEMANN_HOST'), transport=bernhard.UDPTransport)
-    packetlog = new PacketLog(riemann)
-
-    for packet in pcapdata:
-        now = datetime.now()
-        if now > next_clearance:
-            next_clearance = datetime.now() + timedelta(seconds=1)
-            packetlog.flush()
-        packetlog.process_packet(packet)
-
-
-
-    print "finished"
-
-    for k in queries.keys():
-        print "no response for "
-        print [k,queries[v]]
-
-    packetlog.flush()
+    packetlog = PacketLog(riemann)
+    feeder = Feeder(pcapdata, packetlog)
+    feeder.loop
